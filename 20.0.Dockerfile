@@ -27,7 +27,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     && echo "Computed wkhtmltox checksum: $(sha256sum wkhtmltox.deb | awk '{ print $1 }')" \
     && echo "${WKHTMLTOPDF_CHECKSUM} wkhtmltox.deb" | sha256sum -c - \
     && curl -L --output geoipupdate.deb ${GEOIP_URL}
-FROM python:3.12-slim-bookworm AS foundation
+FROM python:3.15-rc-slim-trixie AS foundation
 ARG ODOO_VERSION=20.0
 ENV ODOO_VERSION="$ODOO_VERSION"
 EXPOSE 8069 8072
@@ -82,7 +82,7 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt-lists-${TARGETARCH}-${OD
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
         | gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+    && echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
         > /etc/apt/sources.list.d/postgresql.list \
     && apt-get -qq update \
     && apt-get install -yqq --no-install-recommends \
@@ -146,8 +146,21 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt-lists-${TARGETARCH}-${OD
 RUN --mount=target=/root/.cache/pip,type=cache,id=pip-cache \
     --mount=target=/tmp,type=tmpfs \
     curl -o requirements.txt https://raw.githubusercontent.com/$ODOO_SOURCE/$ODOO_VERSION/requirements.txt \
-    # need to upgrade setuptools, since the fixes for CVE-2024-6345 rolled out in base images we get errors "error: invalid command 'bdist_wheel'"
-    && pip install --upgrade "setuptools<82" \
+    # Odoo 20.0 pins per distro and has no entry for 3.15, so the ">= 3.13" /
+    # ">= 3.14" lines win and resolve to versions that predate cp315. Two are
+    # hard blockers: psycopg2 2.9.10 calls PyWeakref_GetObject(), removed in
+    # 3.15, and gevent 24.11.1 has no 3.15 distribution at all. libsass 0.22.0
+    # only matters off x86_64, where there is no abi3 wheel and its setup.py
+    # hits ast.Str.s, also removed in 3.15. The rest avoid slow source builds.
+    && sed -i -E "s/^psycopg2==2\.9\.[0-9]+ /psycopg2==2.9.13 /; \
+                  s/^gevent==[0-9.]+ /gevent==26.9.0 /; \
+                  s/^greenlet==[0-9.]+ /greenlet==3.5.6 /; \
+                  s/^lxml==[0-9.]+/lxml==6.1.3/; \
+                  s/^MarkupSafe==[0-9.]+ /MarkupSafe==3.0.4 /; \
+                  s/^Pillow==[0-9.]+ /Pillow==12.3.0 /; \
+                  s/^libsass==[0-9.]+/libsass==0.23.0/" requirements.txt \
+    # setuptools unpinned: the <82 cap was for a CVE fix in older base images
+    && pip install --upgrade setuptools \
     && pip install --prefix=/python-install \
         -r requirements.txt \
         'websocket-client~=0.56' \
