@@ -27,7 +27,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     && echo "Computed wkhtmltox checksum: $(sha256sum wkhtmltox.deb | awk '{ print $1 }')" \
     && echo "${WKHTMLTOPDF_CHECKSUM} wkhtmltox.deb" | sha256sum -c - \
     && curl -L --output geoipupdate.deb ${GEOIP_URL}
-FROM python:3.15-rc-slim-trixie AS foundation
+FROM python:3.15-slim-trixie AS foundation
 ARG ODOO_VERSION=20.0
 ENV ODOO_VERSION="$ODOO_VERSION"
 EXPOSE 8069 8072
